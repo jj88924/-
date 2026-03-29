@@ -48,29 +48,35 @@ def get_ma_analysis(df, is_us=False):
 
 def generate_chart(df, ticker, name, is_us=False):
     try:
-        # 이평선 계산은 전체 데이터(200일)에서 미리 해두고, 차트만 60일치를 그립니다.
+        # 1. 국가별 이평선 설정
         ma_list = [5, 10, 20, 50, 100] if is_us else [5, 20, 60, 120]
         
-        # 각 이평선을 미리 계산해서 df에 넣습니다.
-        for p in ma_list:
-            df[f'MA{p}'] = df['Close'].rolling(window=p).mean()
-            
-        # 차트용 데이터는 마지막 60일만 사용 (하지만 이미 이평선은 계산된 상태)
-        chart_df = df.tail(60)
-        
-        filename = f"{ticker}_chart.png"
-        
-        # 차트 스타일: 한국/미국 주식 구분을 위해 색상을 입힙니다.
-        # [5일, 10/20일, 20/60일, 50/120일, 100일] 순서
+        # 2. [핵심] 차트 자르기 전에 전체 데이터(200일치)로 이평선을 미리 계산
+        added_plots = []
+        # 선 색상 지정 (청, 황, 녹, 적, 보)
         colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
         
+        for i, p in enumerate(ma_list):
+            # 전체 데이터셋에 이평선 컬럼 추가
+            df[f'MA{p}'] = df['Close'].rolling(window=p).mean()
+        
+        # 3. 차트 표시 구간 설정 (최근 60일)
+        chart_df = df.tail(60)
+        
+        # 4. [중요] 미리 계산된 이평선 값들을 차트에 추가할 리스트로 만듦
+        for i, p in enumerate(ma_list):
+            ap = mpf.make_addplot(chart_df[f'MA{p}'], color=colors[i], width=1.0)
+            added_plots.append(ap)
+            
+        filename = f"{ticker}_chart.png"
+        
+        # 5. 차트 스타일 및 그리기
         mc = mpf.make_marketcolors(up='red', down='blue', inherit=True)
         s  = mpf.make_mpf_style(marketcolors=mc, gridstyle='--', y_on_right=True)
         
-        # 핵심: mav 옵션 대신 미리 계산한 컬럼을 넣거나, mav에 리스트를 정확히 전달합니다.
+        # addplot 옵션을 사용하여 계산된 선들을 강제로 그려넣음
         mpf.plot(chart_df, type='candle', style=s, 
-                 mav=tuple(ma_list), # 여기서 선들을 그립니다.
-                 mavcolors=colors[:len(ma_list)], # 선 개수만큼 색상 배정
+                 addplot=added_plots,
                  title=f"\n{name} ({ticker}) Daily Chart",
                  ylabel='Price', volume=True,
                  savefig=dict(fname=filename, dpi=100, bbox_inches='tight'))
