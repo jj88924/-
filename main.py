@@ -47,25 +47,33 @@ def get_ma_analysis(df, is_us=False):
     return " | ".join(msgs) if msgs else ""
 
 def generate_chart(df, ticker, name, is_us=False):
-    """최근 60일 데이터로 캔들 차트와 이평선 이미지를 생성합니다."""
     try:
-        chart_df = df.tail(60) # 차트는 최근 60일 데이터로 시인성을 높임
+        # 이평선 계산은 전체 데이터(200일)에서 미리 해두고, 차트만 60일치를 그립니다.
+        ma_list = [5, 10, 20, 50, 100] if is_us else [5, 20, 60, 120]
         
-        # 국가별 이평선 설정
-        ma_list = [5, 20, 50, 100] if is_us else [5, 20, 60, 120]
+        # 각 이평선을 미리 계산해서 df에 넣습니다.
+        for p in ma_list:
+            df[f'MA{p}'] = df['Close'].rolling(window=p).mean()
+            
+        # 차트용 데이터는 마지막 60일만 사용 (하지만 이미 이평선은 계산된 상태)
+        chart_df = df.tail(60)
         
-        # 차트 파일 이름
         filename = f"{ticker}_chart.png"
         
-        # 차트 스타일 설정 (심플하고 가독성 좋은 스타일)
+        # 차트 스타일: 한국/미국 주식 구분을 위해 색상을 입힙니다.
+        # [5일, 10/20일, 20/60일, 50/120일, 100일] 순서
+        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
+        
         mc = mpf.make_marketcolors(up='red', down='blue', inherit=True)
         s  = mpf.make_mpf_style(marketcolors=mc, gridstyle='--', y_on_right=True)
         
-        # 차트 그리기 (캔들차트 + 이동평균선)
-        mpf.plot(chart_df, type='candle', style=s, mav=tuple(ma_list),
+        # 핵심: mav 옵션 대신 미리 계산한 컬럼을 넣거나, mav에 리스트를 정확히 전달합니다.
+        mpf.plot(chart_df, type='candle', style=s, 
+                 mav=tuple(ma_list), # 여기서 선들을 그립니다.
+                 mavcolors=colors[:len(ma_list)], # 선 개수만큼 색상 배정
                  title=f"\n{name} ({ticker}) Daily Chart",
-                 ylabel='Price', ylabel_lower='Volume',
-                 volume=True, savefig=dict(fname=filename, dpi=100, bbox_inches='tight'))
+                 ylabel='Price', volume=True,
+                 savefig=dict(fname=filename, dpi=100, bbox_inches='tight'))
         
         return filename
     except Exception as e:
