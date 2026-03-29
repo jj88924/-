@@ -2,3 +2,5 @@ finance-datareader
 pandas
 numpy
 requests
+matplotlib
+mplfinance
