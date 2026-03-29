@@ -1,0 +1,25 @@
+name: Stock Bot Action
+
+on:
+  schedule:
+    # 한국 시간 기준 평일(월-금) 오전 8시 30분 실행
+    - cron: '30 23 * * 0-4'
+  workflow_dispatch: # 직접 버튼 눌러서 실행하고 싶을 때 사용
+
+jobs:
+  run_bot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+      - name: Run script
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: python main.py
