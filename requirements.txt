@@ -1,3 +1,5 @@
 finance-datareader
-pandas_ta
 requests
+pandas
+numpy<2.0.0
+https://github.com/twopirllc/pandas-ta/archive/master.zip
