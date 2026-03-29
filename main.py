@@ -1,9 +1,10 @@
 import FinanceDataReader as fdr
 import pandas as pd
-import numpy as np
 import requests
 import os
 import time
+import mplfinance as mpf
+import matplotlib.pyplot as plt
 
 # --- 환경 설정 ---
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
@@ -26,8 +27,7 @@ def calculate_rsi(series, period=14):
 def get_ma_analysis(df, is_us=False):
     msgs = []
     ma_list = [5, 10, 20, 50, 100] if is_us else [5, 20, 60, 120]
-    last = df.iloc[-1]
-    prev = df.iloc[-2]
+    last, prev = df.iloc[-1], df.iloc[-2]
     
     ma_values = {}
     for p in ma_list:
@@ -46,36 +46,90 @@ def get_ma_analysis(df, is_us=False):
         elif f_p > s_p and f_l < s_l: msgs.append(f"💀데드({fast}/{slow})")
     return " | ".join(msgs) if msgs else ""
 
-def get_signals(ticker, name, is_us=False):
+def generate_chart(df, ticker, name, is_us=False):
+    """최근 60일 데이터로 캔들 차트와 이평선 이미지를 생성합니다."""
     try:
+        chart_df = df.tail(60) # 차트는 최근 60일 데이터로 시인성을 높임
+        
+        # 국가별 이평선 설정
+        ma_list = [5, 20, 50, 100] if is_us else [5, 20, 60, 120]
+        
+        # 차트 파일 이름
+        filename = f"{ticker}_chart.png"
+        
+        # 차트 스타일 설정 (심플하고 가독성 좋은 스타일)
+        mc = mpf.make_marketcolors(up='red', down='blue', inherit=True)
+        s  = mpf.make_mpf_style(marketcolors=mc, gridstyle='--', y_on_right=True)
+        
+        # 차트 그리기 (캔들차트 + 이동평균선)
+        mpf.plot(chart_df, type='candle', style=s, mav=tuple(ma_list),
+                 title=f"\n{name} ({ticker}) Daily Chart",
+                 ylabel='Price', ylabel_lower='Volume',
+                 volume=True, savefig=dict(fname=filename, dpi=100, bbox_inches='tight'))
+        
+        return filename
+    except Exception as e:
+        print(f"차트 생성 실패 ({ticker}): {e}")
+        return None
+
+def send_telegram_with_chart(message, chart_filename):
+    """텔레그램으로 차트 이미지와 메시지를 함께 전송합니다."""
+    if not TELEGRAM_TOKEN or not CHAT_ID: return
+    
+    # 1. 차트 이미지 전송 (이미지 먼저 보냄)
+    if chart_filename and os.path.exists(chart_filename):
+        try:
+            url_photo = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+            with open(chart_filename, 'rb') as photo:
+                requests.post(url_photo, data={"chat_id": CHAT_ID}, files={"photo": photo})
+            
+            # 전송 후 파일 삭제 (서버 용량 관리)
+            os.remove(chart_filename)
+        except: pass
+    
+    # 2. 텍스트 메시지 전송 (Markdown 형식 지원)
+    url_msg = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    try:
+        requests.post(url_msg, json={"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"})
+    except: pass
+
+# --- 메인 실행부 ---
+final_results = []
+print("🔍 관심 종목 정밀 스캔 시작 (차트 생성 포함)...")
+
+for ticker, name, is_us in MY_STOCKS:
+    try:
+        # 1. 데이터 다운로드
         df = fdr.DataReader(ticker).tail(200)
+        
+        # 2. 지표 계산
         df['RSI'] = calculate_rsi(df['Close'])
-        # Z-Score 직접 계산
         m20 = df['Close'].rolling(20).mean()
         s20 = df['Close'].rolling(20).std()
         df['ZS'] = (df['Close'] - m20) / s20
         
+        # 3. 신호 분석
         last = df.iloc[-1]
         r, z = round(last['RSI'], 1), round(last['ZS'], 2)
         price = round(float(last['Close']), 2)
         ma_info = get_ma_analysis(df, is_us)
 
-        res = ""
-        if r < 35 and z < -1.5: res = f"🔵 BUY  | {name[:5]:<5} | {price:>8}"
-        elif r > 70 and z > 1.8: res = f"🔴 SELL | {name[:5]:<5} | {price:>8}"
+        # 4. 차트 이미지 생성
+        chart_file = generate_chart(df, ticker, name, is_us)
+
+        # 5. 개별 종목 리포트 메시지 구성
+        prefix = f"⚪️ INFO | *{name[:5]:<5}* | {price:>8}"
+        if r < 35 and z < -1.5: prefix = f"🔵 BUY  | *{name[:5]:<5}* | {price:>8}"
+        elif r > 70 and z > 1.8: prefix = f"🔴 SELL | *{name[:5]:<5}* | {price:>8}"
         
-        prefix = res if res else f"⚪️ INFO | {name[:5]:<5} | {price:>8}"
-        return f"{prefix} | {ma_info} (R:{r}/Z:{z})"
-    except: return None
+        single_report = f"{prefix} | {ma_info} (R:{r}/Z:{z})"
+        
+        # 6. 개별 종목 차트와 메시지 즉시 전송
+        # (전체 리포트를 한꺼번에 보내는 대신, 차트와 메시지를 짝지어 종목별로 보냅니다.)
+        send_telegram_with_chart(single_report, chart_file)
+        
+        time.sleep(1.0) # 전송 부하 방지
+    except Exception as e:
+        print(f"에러 발생 ({ticker}): {e}")
 
-# --- 실행 및 전송 ---
-final_results = []
-for ticker, name, is_us in MY_STOCKS:
-    out = get_signals(ticker, name, is_us)
-    if out: final_results.append(out)
-    time.sleep(0.5)
-
-if final_results:
-    report = "📑 *관심 종목 정밀 리포트*\n" + "-"*30 + "\n" + "\n".join(final_results)
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    requests.post(url, json={"chat_id": CHAT_ID, "text": report, "parse_mode": "Markdown"})
+print("✅ 모든 관심 종목 스캔 및 전송 완료!")
