@@ -11,10 +11,26 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 CHAT_ID = os.getenv('CHAT_ID')
 
 MY_STOCKS = [
-    ('TSLA', '테슬라', True),
-    ('RKLB', '로켓랩', True),
-    ('LITE', '루멘텀', True),
-    ('445680', '큐리옥스바이오', False)
+    # --- 미국 주식 (True) ---
+    ('GEV', 'GE버노바', True),
+    ('SMR', '뉴스케일파워', True),
+    ('SOXL', 'SOXL(3배레버리지)', True),
+    ('NVDA', '엔비디아', True),
+    ('INTC', '인텔', True),
+    ('WDC', '웨스턴디지털(샌디스크)', True), # 샌디스크는 상장명이 웨스턴디지털입니다.
+    ('MU', '마이크론', True),
+    ('LITE', '루멘텀', True), # 기존 종목 유지
+    ('TSLA', '테슬라', True), # 기존 종목 유지
+    
+    # --- 한국 주식 (False) ---
+    ('007660', '이수페타시스', False),
+    ('141080', '리가켐바이오', False),
+    ('402340', 'SK스퀘어', False),
+    ('454910', '두산로보틱스', False),
+    ('464190', '에스오에스랩', False),
+    ('000660', 'SK하이닉스', False),
+    ('035420', '네이버', False), # 보유 중이신 종목
+    ('445680', '큐리옥스바이오', False) # 기존 종목 유지
 ]
 
 def calculate_rsi(series, period=14):
