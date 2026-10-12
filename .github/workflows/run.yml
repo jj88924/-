@@ -1,4 +1,4 @@
-name: Stock Bot Action
+name: 주식 지표 알림 & 차트 전송 (미국/한국)
 
 on:
   schedule:
