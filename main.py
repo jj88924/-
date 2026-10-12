@@ -1,36 +1,39 @@
-import FinanceDataReader as fdr
-import pandas as pd
-import requests
 import os
 import time
-import mplfinance as mpf
+import requests
+import pandas as pd
+import FinanceDataReader as fdr
+
+# Headless 환경 설정 (GUI 에러 방지)
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import mplfinance as mpf
 
 # --- 환경 설정 ---
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 CHAT_ID = os.getenv('CHAT_ID')
 
 MY_STOCKS = [
-    # --- 미국 주식 (True) ---
+    # 미국 주식
     ('GEV', 'GE버노바', True),
     ('SMR', '뉴스케일파워', True),
     ('SOXL', 'SOXL(3배레버리지)', True),
     ('NVDA', '엔비디아', True),
     ('INTC', '인텔', True),
-    ('WDC', '웨스턴디지털(샌디스크)', True), # 샌디스크는 상장명이 웨스턴디지털입니다.
+    ('WDC', '웨스턴디지털', True),
     ('MU', '마이크론', True),
-    ('LITE', '루멘텀', True), # 기존 종목 유지
-    ('TSLA', '테슬라', True), # 기존 종목 유지
-    
-    # --- 한국 주식 (False) ---
+    ('LITE', '루멘텀', True),
+    ('TSLA', '테슬라', True),
+    # 한국 주식
     ('007660', '이수페타시스', False),
     ('141080', '리가켐바이오', False),
     ('402340', 'SK스퀘어', False),
     ('454910', '두산로보틱스', False),
     ('464190', '에스오에스랩', False),
     ('000660', 'SK하이닉스', False),
-    ('035420', '네이버', False), # 보유 중이신 종목
-    ('445680', '큐리옥스바이오', False) # 기존 종목 유지
+    ('035420', '네이버', False),
+    ('445680', '큐리옥스바이오', False)
 ]
 
 def calculate_rsi(series, period=14):
@@ -51,114 +54,111 @@ def get_ma_analysis(df, is_us=False):
         m_val, p_m_val = ma.iloc[-1], ma.iloc[-2]
         ma_values[p] = (m_val, p_m_val)
         
-        if prev['Close'] > p_m_val and last['Close'] < m_val: msgs.append(f"⚠️{p}선이탈")
-        elif abs(last['Close'] - m_val) / m_val < 0.012: msgs.append(f"⚓{p}선지지")
+        if prev['Close'] > p_m_val and last['Close'] < m_val:
+            msgs.append(f"⚠️{p}선이탈")
+        elif abs(last['Close'] - m_val) / m_val < 0.012:
+            msgs.append(f"⚓{p}선지지")
 
     fast, slow = (5, 20) if not is_us else (20, 50)
     if fast in ma_values and slow in ma_values:
         f_l, f_p = ma_values[fast][0], ma_values[fast][1]
         s_l, s_p = ma_values[slow][0], ma_values[slow][1]
-        if f_p < s_p and f_l > s_l: msgs.append(f"🚀골든({fast}/{slow})")
-        elif f_p > s_p and f_l < s_l: msgs.append(f"💀데드({fast}/{slow})")
+        if f_p < s_p and f_l > s_l:
+            msgs.append(f"🚀골든({fast}/{slow})")
+        elif f_p > s_p and f_l < s_l:
+            msgs.append(f"💀데드({fast}/{slow})")
     return " | ".join(msgs) if msgs else ""
 
 def generate_chart(df, ticker, name, is_us=False):
     try:
-        # 1. 국가별 이평선 설정
         ma_list = [5, 10, 20, 50, 100] if is_us else [5, 20, 60, 120]
-        
-        # 2. [핵심] 차트 자르기 전에 전체 데이터(200일치)로 이평선을 미리 계산
         added_plots = []
-        # 선 색상 지정 (청, 황, 녹, 적, 보)
         colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
         
-        for i, p in enumerate(ma_list):
-            # 전체 데이터셋에 이평선 컬럼 추가
+        for p in ma_list:
             df[f'MA{p}'] = df['Close'].rolling(window=p).mean()
         
-        # 3. 차트 표시 구간 설정 (최근 60일)
         chart_df = df.tail(60)
         
-        # 4. [중요] 미리 계산된 이평선 값들을 차트에 추가할 리스트로 만듦
         for i, p in enumerate(ma_list):
             ap = mpf.make_addplot(chart_df[f'MA{p}'], color=colors[i], width=1.0)
             added_plots.append(ap)
             
         filename = f"{ticker}_chart.png"
         
-        # 5. 차트 스타일 및 그리기
         mc = mpf.make_marketcolors(up='red', down='blue', inherit=True)
-        s  = mpf.make_mpf_style(marketcolors=mc, gridstyle='--', y_on_right=True)
+        s = mpf.make_mpf_style(marketcolors=mc, gridstyle='--', y_on_right=True)
         
-        # addplot 옵션을 사용하여 계산된 선들을 강제로 그려넣음
+        # 리눅스 한글 폰트 미설치 시 글자 깨짐 방지를 위해 ticker 위주 표시
         mpf.plot(chart_df, type='candle', style=s, 
                  addplot=added_plots,
-                 title=f"\n{name} ({ticker}) Daily Chart",
+                 title=f"\n{ticker} Daily Chart",
                  ylabel='Price', volume=True,
                  savefig=dict(fname=filename, dpi=100, bbox_inches='tight'))
-        
+        plt.close('all')  # 메모리 누수 방지
         return filename
     except Exception as e:
         print(f"차트 생성 실패 ({ticker}): {e}")
         return None
 
 def send_telegram_with_chart(message, chart_filename):
-    """텔레그램으로 차트 이미지와 메시지를 함께 전송합니다."""
-    if not TELEGRAM_TOKEN or not CHAT_ID: return
+    if not TELEGRAM_TOKEN or not CHAT_ID:
+        print("Telegram Token 또는 Chat ID가 설정되지 않았습니다.")
+        return
     
-    # 1. 차트 이미지 전송 (이미지 먼저 보냄)
+    # 1. 차트 이미지 전송
     if chart_filename and os.path.exists(chart_filename):
         try:
             url_photo = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
             with open(chart_filename, 'rb') as photo:
-                requests.post(url_photo, data={"chat_id": CHAT_ID}, files={"photo": photo})
-            
-            # 전송 후 파일 삭제 (서버 용량 관리)
+                res = requests.post(url_photo, data={"chat_id": CHAT_ID}, files={"photo": photo})
+                if res.status_code != 200:
+                    print(f"사진 전송 오류: {res.text}")
             os.remove(chart_filename)
-        except: pass
+        except Exception as e:
+            print(f"사진 전송 예외 발생: {e}")
     
-    # 2. 텍스트 메시지 전송 (Markdown 형식 지원)
+    # 2. 텍스트 메시지 전송 (마크다운 파싱 오류를 피하기 위해 일반 텍스트 전송)
     url_msg = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try:
-        requests.post(url_msg, json={"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"})
-    except: pass
+        res = requests.post(url_msg, json={"chat_id": CHAT_ID, "text": message})
+        if res.status_code != 200:
+            print(f"메시지 전송 오류: {res.text}")
+    except Exception as e:
+        print(f"메시지 전송 예외 발생: {e}")
 
 # --- 메인 실행부 ---
-final_results = []
-print("🔍 관심 종목 정밀 스캔 시작 (차트 생성 포함)...")
+print("🔍 관심 종목 정밀 스캔 시작...")
 
 for ticker, name, is_us in MY_STOCKS:
     try:
-        # 1. 데이터 다운로드
         df = fdr.DataReader(ticker).tail(200)
-        
-        # 2. 지표 계산
+        if df.empty or len(df) < 60:
+            print(f"데이터 부족으로 건너뜀: {ticker}")
+            continue
+
         df['RSI'] = calculate_rsi(df['Close'])
         m20 = df['Close'].rolling(20).mean()
         s20 = df['Close'].rolling(20).std()
         df['ZS'] = (df['Close'] - m20) / s20
         
-        # 3. 신호 분석
         last = df.iloc[-1]
         r, z = round(last['RSI'], 1), round(last['ZS'], 2)
         price = round(float(last['Close']), 2)
         ma_info = get_ma_analysis(df, is_us)
 
-        # 4. 차트 이미지 생성
         chart_file = generate_chart(df, ticker, name, is_us)
 
-        # 5. 개별 종목 리포트 메시지 구성
-        prefix = f"⚪️ INFO | *{name[:5]:<5}* | {price:>8}"
-        if r < 35 and z < -1.5: prefix = f"🔵 BUY  | *{name[:5]:<5}* | {price:>8}"
-        elif r > 70 and z > 1.8: prefix = f"🔴 SELL | *{name[:5]:<5}* | {price:>8}"
+        prefix = f"⚪️ INFO | {name} | {price}"
+        if r < 35 and z < -1.5:
+            prefix = f"🔵 BUY  | {name} | {price}"
+        elif r > 70 and z > 1.8:
+            prefix = f"🔴 SELL | {name} | {price}"
         
         single_report = f"{prefix} | {ma_info} (R:{r}/Z:{z})"
-        
-        # 6. 개별 종목 차트와 메시지 즉시 전송
-        # (전체 리포트를 한꺼번에 보내는 대신, 차트와 메시지를 짝지어 종목별로 보냅니다.)
         send_telegram_with_chart(single_report, chart_file)
         
-        time.sleep(1.0) # 전송 부하 방지
+        time.sleep(1.0)
     except Exception as e:
         print(f"에러 발생 ({ticker}): {e}")
 
